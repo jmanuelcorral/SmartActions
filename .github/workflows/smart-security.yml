@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
 
     steps:
       # ── 1. Checkout the repository ──
@@ -105,3 +106,15 @@ jobs:
           else
             echo "✅ No critical vulnerabilities found."
           fi
+
+      # ── 7. Post Security Report as PR comment ──
+      - name: Post Security Report on Pull Request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPORT=$(cat security-report.md)
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body "## 🔒 Security Assessment Report
+            ${REPORT}"
