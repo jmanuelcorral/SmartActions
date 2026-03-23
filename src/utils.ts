@@ -26,7 +26,7 @@ export function generateId(): string {
  */
 export function formatTimestamp(date: Date): string {
   return date.toISOString();
-}
+}   
 
 /**
  * Validates that a value is a positive integer.
