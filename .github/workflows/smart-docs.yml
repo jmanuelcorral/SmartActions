@@ -1,0 +1,119 @@
+# ──────────────────────────────────────────────────────────────
+# 📚 SMART Docs Enforcer
+# Uses GitHub Copilot CLI to verify that code changes are
+# accompanied by adequate documentation. Fails the build if
+# documentation is missing.
+# ──────────────────────────────────────────────────────────────
+
+name: 📚 SMART Docs Enforcer
+
+on:
+  pull_request:
+
+jobs:
+  docs-check:
+    name: AI Documentation Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── 1. Checkout the repository ──
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Setup Node.js ──
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── 3. Install GitHub Copilot CLI ──
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      # ── 4. Run the Docs Enforcer Agent ──
+      - name: Run Docs Enforcer Agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          # Read the agent persona
+          AGENT_PROMPT=$(cat .github/agents/docs-enforcer.agent.md)
+
+          # Get the list of changed files in this PR
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || echo "Unable to determine changed files")
+
+          # Gather contents of changed source files
+          SOURCE_CHANGES=""
+          for f in $(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null); do
+            if [ -f "$f" ]; then
+              SOURCE_CHANGES="${SOURCE_CHANGES}
+          --- FILE: ${f} ---
+          $(cat "$f")
+          "
+            fi
+          done
+
+          # Read current README if it exists
+          README_CONTENT=""
+          if [ -f "README.md" ]; then
+            README_CONTENT=$(cat README.md)
+          fi
+
+          # Build the full prompt
+          FULL_PROMPT="
+          ${AGENT_PROMPT}
+
+          ## Pull Request Context
+          - Repository: ${{ github.repository }}
+          - PR Branch: ${{ github.head_ref }}
+          - Base Branch: ${{ github.base_ref }}
+          - PR Number: ${{ github.event.pull_request.number }}
+
+          ## Changed Files
+          ${CHANGED_FILES}
+
+          ## File Contents
+          ${SOURCE_CHANGES}
+
+          ## Current README.md
+          ${README_CONTENT}
+
+          Now perform the documentation review following the instructions above.
+          "
+
+          # Execute Copilot CLI
+          echo "$FULL_PROMPT" | copilot \
+            --prompt - \
+            --allow-all-tools \
+            --allow-all-paths \
+            < /dev/null \
+            | tee docs-report.md
+
+      # ── 5. Upload report artifact ──
+      - name: Upload Docs Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-report
+          path: docs-report.md
+          retention-days: 30
+
+      # ── 6. Kill Switch — fail if documentation is missing ──
+      - name: Check for missing documentation
+        if: always()
+        run: |
+          REPORT_PATH="docs-report.md"
+          KILL_SWITCH="MISSING_DOCUMENTATION_DETECTED"
+
+          echo "🔍 Checking for missing documentation..."
+
+          if grep -q "$KILL_SWITCH" "$REPORT_PATH"; then
+            echo "📖 MISSING DOCUMENTATION — failing the build."
+            echo "Review the docs-report artifact for details."
+            exit 1
+          else
+            echo "✅ Documentation check passed."
+          fi

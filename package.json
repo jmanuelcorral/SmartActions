@@ -1,0 +1,29 @@
+{
+  "name": "smartactions-demo",
+  "version": "1.0.0",
+  "description": "SMART Actions demo — AI agents in CI/CD using GitHub Copilot CLI",
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "tsx src/app.ts"
+  },
+  "keywords": [
+    "github-actions",
+    "copilot",
+    "ai",
+    "ci-cd",
+    "security"
+  ],
+  "author": "Jose",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

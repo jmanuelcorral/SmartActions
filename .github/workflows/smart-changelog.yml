@@ -1,0 +1,132 @@
+# ──────────────────────────────────────────────────────────────
+# 📝 SMART Changelog Generator
+# Uses GitHub Copilot CLI to read recent commits and produce
+# a structured changelog entry. This is a generative agent —
+# it always succeeds (no kill switch).
+# ──────────────────────────────────────────────────────────────
+
+name: 📝 SMART Changelog Generator
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  generate-changelog:
+    name: AI Changelog Generation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # ── 1. Checkout the repository ──
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50 # Enough history for recent commits
+          token: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+
+      # ── 2. Setup Node.js ──
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── 3. Install GitHub Copilot CLI ──
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      # ── 4. Gather recent commit history ──
+      - name: Gather commit log
+        id: commits
+        run: |
+          # Get commits since last tag, or last 20 commits
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            COMMIT_LOG=$(git log "${LAST_TAG}..HEAD" --pretty=format:"%h %s (%an)" --no-merges)
+          else
+            COMMIT_LOG=$(git log -20 --pretty=format:"%h %s (%an)" --no-merges)
+          fi
+
+          # Save to a temp file (multi-line output)
+          echo "$COMMIT_LOG" > /tmp/commit-log.txt
+          echo "log_file=/tmp/commit-log.txt" >> "$GITHUB_OUTPUT"
+
+      # ── 5. Run the Changelog Generator Agent ──
+      - name: Run Changelog Agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          AGENT_PROMPT=$(cat .github/agents/changelog-generator.agent.md)
+          COMMIT_LOG=$(cat /tmp/commit-log.txt)
+
+          # Read existing changelog if present
+          EXISTING_CHANGELOG=""
+          if [ -f "CHANGELOG.md" ]; then
+            EXISTING_CHANGELOG=$(head -50 CHANGELOG.md)
+          fi
+
+          FULL_PROMPT="
+          ${AGENT_PROMPT}
+
+          ## Repository Context
+          - Repository: ${{ github.repository }}
+          - Branch: ${{ github.ref_name }}
+          - Commit: ${{ github.sha }}
+
+          ## Recent Commits
+          ${COMMIT_LOG}
+
+          ## Existing CHANGELOG.md (first 50 lines)
+          ${EXISTING_CHANGELOG}
+
+          Generate the changelog entry now. Output ONLY the markdown changelog block.
+          "
+
+          # Execute Copilot CLI
+          echo "$FULL_PROMPT" | copilot \
+            --prompt - \
+            --allow-all-tools \
+            --allow-all-paths \
+            < /dev/null \
+            | tee /tmp/new-entry.md
+
+      # ── 6. Prepend new entry to CHANGELOG.md ──
+      - name: Update CHANGELOG.md
+        run: |
+          NEW_ENTRY=$(cat /tmp/new-entry.md)
+
+          if [ -f "CHANGELOG.md" ]; then
+            # Prepend new entry after the header line
+            {
+              head -1 CHANGELOG.md
+              echo ""
+              echo "$NEW_ENTRY"
+              echo ""
+              tail -n +2 CHANGELOG.md
+            } > CHANGELOG.tmp
+            mv CHANGELOG.tmp CHANGELOG.md
+          else
+            # Create new changelog
+            {
+              echo "# Changelog"
+              echo ""
+              echo "$NEW_ENTRY"
+            } > CHANGELOG.md
+          fi
+
+          echo "📝 Changelog updated successfully."
+
+      # ── 7. Commit and push the updated changelog ──
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit."
+          else
+            git commit -m "docs: update changelog [skip ci]"
+            git push
+          fi

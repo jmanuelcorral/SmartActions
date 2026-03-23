@@ -1,0 +1,107 @@
+# ──────────────────────────────────────────────────────────────
+# 🔒 SMART Security Agent
+# Uses GitHub Copilot CLI to perform AI-powered SAST scanning.
+# The agent reads the security-reporter prompt, scans source
+# code, and fails the build if critical vulnerabilities exist.
+# ──────────────────────────────────────────────────────────────
+
+name: 🔒 SMART Security Agent
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  security-assessment:
+    name: AI Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── 1. Checkout the repository ──
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for diff-based analysis
+
+      # ── 2. Setup Node.js (required by Copilot CLI) ──
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── 3. Install GitHub Copilot CLI — the "brain" ──
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      # ── 4. Run the Security Agent ──
+      # Constructs the prompt from: agent file + source code context
+      # Pipes through Copilot CLI with --allow-all-tools
+      - name: Run Security Agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          # Read the agent persona / system prompt
+          AGENT_PROMPT=$(cat .github/agents/security-reporter.agent.md)
+
+          # Gather source files for the agent to analyze
+          SOURCE_FILES=""
+          for f in $(find src/ -type f -name '*.ts' -o -name '*.js'); do
+            SOURCE_FILES="${SOURCE_FILES}
+          --- FILE: ${f} ---
+          $(cat "$f")
+          "
+          done
+
+          # Build the full prompt: persona + context + instructions
+          FULL_PROMPT="
+          ${AGENT_PROMPT}
+
+          ## Repository Context
+          - Repository: ${{ github.repository }}
+          - Branch: ${{ github.ref_name }}
+          - Commit: ${{ github.sha }}
+          - Trigger: ${{ github.event_name }}
+
+          ## Source Code to Analyze
+          ${SOURCE_FILES}
+
+          Now perform the security assessment following the instructions above.
+          "
+
+          # Execute Copilot CLI — the AI does its work
+          # < /dev/null prevents interactive input in CI
+          echo "$FULL_PROMPT" | copilot \
+            --prompt - \
+            --allow-all-tools \
+            --allow-all-paths \
+            < /dev/null \
+            | tee security-report.md
+
+      # ── 5. Upload the report as a build artifact ──
+      - name: Upload Security Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: security-report.md
+          retention-days: 30
+
+      # ── 6. Kill Switch — fail if critical vulnerabilities found ──
+      - name: Check for critical vulnerabilities
+        if: always()
+        run: |
+          REPORT_PATH="security-report.md"
+          KILL_SWITCH="THIS ASSESSMENT CONTAINS A CRITICAL VULNERABILITY"
+
+          echo "🔍 Checking report for critical vulnerabilities..."
+
+          if grep -q "$KILL_SWITCH" "$REPORT_PATH"; then
+            echo "🚨 CRITICAL VULNERABILITY DETECTED — failing the build."
+            echo "Review the security-report artifact for details."
+            exit 1
+          else
+            echo "✅ No critical vulnerabilities found."
+          fi
