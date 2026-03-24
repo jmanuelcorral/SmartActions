@@ -84,13 +84,20 @@ jobs:
           Now perform the documentation review following the instructions above.
           "
 
+          # Write prompt to a temp file so < /dev/null can suppress interactive
+          # input without conflicting with the prompt pipe (Broken pipe fix)
+          PROMPT_FILE=$(mktemp)
+          echo "$FULL_PROMPT" > "$PROMPT_FILE"
+
           # Execute Copilot CLI
-          echo "$FULL_PROMPT" | copilot \
-            --prompt - \
+          copilot \
+            --prompt "$PROMPT_FILE" \
             --allow-all-tools \
             --allow-all-paths \
             < /dev/null \
             | tee docs-report.md
+
+          rm -f "$PROMPT_FILE"
 
       # ── 5. Upload report artifact ──
       - name: Upload Docs Report
