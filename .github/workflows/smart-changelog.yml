@@ -83,13 +83,20 @@ jobs:
           Generate the changelog entry now. Output ONLY the markdown changelog block.
           "
 
+          # Write prompt to a temp file so < /dev/null can suppress interactive
+          # input without conflicting with the prompt pipe (Broken pipe fix)
+          PROMPT_FILE=$(mktemp)
+          echo "$FULL_PROMPT" > "$PROMPT_FILE"
+
           # Execute Copilot CLI
-          echo "$FULL_PROMPT" | copilot \
-            --prompt - \
+          copilot \
+            --prompt "$PROMPT_FILE" \
             --allow-all-tools \
             --allow-all-paths \
             < /dev/null \
             | tee /tmp/new-entry.md
+
+          rm -f "$PROMPT_FILE"
 
       # ── 6. Prepend new entry to CHANGELOG.md ──
       - name: Update CHANGELOG.md

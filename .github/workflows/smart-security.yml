@@ -72,14 +72,20 @@ jobs:
           Now perform the security assessment following the instructions above.
           "
 
+          # Write prompt to a temp file so < /dev/null can suppress interactive
+          # input without conflicting with the prompt pipe (Broken pipe fix)
+          PROMPT_FILE=$(mktemp)
+          echo "$FULL_PROMPT" > "$PROMPT_FILE"
+
           # Execute Copilot CLI — the AI does its work
-          # < /dev/null prevents interactive input in CI
-          echo "$FULL_PROMPT" | copilot \
-            --prompt - \
+          copilot \
+            --prompt "$PROMPT_FILE" \
             --allow-all-tools \
             --allow-all-paths \
             < /dev/null \
             | tee security-report.md
+
+          rm -f "$PROMPT_FILE"
 
       # ── 5. Upload the report as a build artifact ──
       - name: Upload Security Report
