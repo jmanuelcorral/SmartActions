@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
 
     steps:
       # ── 1. Checkout the repository ──
@@ -124,3 +125,16 @@ jobs:
           else
             echo "✅ Documentation check passed."
           fi
+
+      # ── 7. Post Docs Report as PR comment ──
+      - name: Post Docs Report on Pull Request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPORT=$(cat docs-report.md)
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body "## 📚 Documentation Review Report
+
+${REPORT}"
